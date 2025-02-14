@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/fatih/color"
+	"github.com/sqweek/dialog"
 )
 
 // processJSON reads the metadata JSON file, extracts the photoTakenTime,
@@ -25,44 +28,45 @@ import (
 func processJSON(jsonPath string) {
 	file, err := os.Open(jsonPath)
 	if err != nil {
-		log.Printf("Error reading JSON file %s: %v\n", jsonPath, err)
+		color.Red("Error reading JSON file %s: %v\n", jsonPath, err)
 		return
 	}
 	defer file.Close()
 
 	var meta Takeout
 	if err := json.NewDecoder(file).Decode(&meta); err != nil {
-		log.Printf("Error parsing JSON file %s: %v\n", jsonPath, err)
+		color.Red("Error parsing JSON file %s: %v\n", jsonPath, err)
 		return
 	}
 
 	ts, err := strconv.ParseInt(meta.PhotoTakenTime.Timestamp, 10, 64)
 	if err != nil {
-		log.Printf("Error parsing timestamp in %s: %v\n", jsonPath, err)
+		color.Red("Error parsing timestamp in %s: %v\n", jsonPath, err)
 		return
 	}
 	takenTime := time.Unix(ts, 0)
 
 	// Determine the image file by using the Title field (assumed to be the image filename)
-	imagePath := meta.Title
+	imagePath := filepath.Join(filepath.Dir(jsonPath), meta.Title)
+
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
-		log.Printf("Image file %s does not exist for metadata %s\n", imagePath, jsonPath)
+		color.Red("Image file %s does not exist for metadata %s\n", imagePath, jsonPath)
 		return
 	}
 
 	// Update modification and access times.
 	if err := os.Chtimes(imagePath, takenTime, takenTime); err != nil {
-		log.Printf("Error updating file times for %s: %v\n", imagePath, err)
+		color.Red("Error updating file times for %s: %v\n", imagePath, err)
 		return
 	}
 
 	// Update creation time (Windows only).
 	if err := changeDateCreated(imagePath, takenTime); err != nil {
-		log.Printf("Error updating creation time for %s: %v\n", imagePath, err)
+		color.Red("Error updating creation time for %s: %v\n", imagePath, err)
 		return
 	}
 
-	log.Printf("Updated file times of %s to %s\n", imagePath, takenTime.Format(time.RFC3339))
+	color.Green("✓ Updated file times of %s to %s\n", imagePath, takenTime.Format(time.RFC3339))
 }
 
 // timeToFiletime converts a time.Time to a Windows FILETIME structure.
@@ -89,7 +93,7 @@ func changeDateCreated(imagePath string, takenTime time.Time) error {
 	// Open the file with read-write access.
 	file, err := os.OpenFile(imagePath, os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("failed to open file: %v", err)
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -100,7 +104,7 @@ func changeDateCreated(imagePath string, takenTime time.Time) error {
 
 	// Set the file's creation, last access, and last write times.
 	if err := syscall.SetFileTime(handle, &ft, &ft, &ft); err != nil {
-		return fmt.Errorf("failed to set creation time: %v", err)
+		return fmt.Errorf("failed to set creation time: %w", err)
 	}
 
 	return nil
@@ -137,15 +141,28 @@ func main() {
 	startDir := flag.String("dir", ".", "Directory to start the recursive walk")
 	flag.Parse()
 
-	absStartDir, err := filepath.Abs(*startDir)
-	if err != nil {
-		log.Printf("Error determining absolute path: %v\n", err)
-		os.Exit(1)
+	var absStartDir string
+	if *startDir == "." {
+		startDir, err := filepath.Abs(".")
+		if err != nil {
+			log.Fatalf("Error determining absolute path: %v\n", err)
+		}
+		absStartDir, err = dialog.Directory().Title(`Select the root "Google Photos" folder.`).SetStartDir(startDir).Browse()
+		if err != nil {
+			if errors.Is(err, dialog.ErrCancelled) {
+				absStartDir, err = filepath.Abs(".")
+				if err != nil {
+					log.Fatalf("Error determining absolute path: %v\n", err)
+				}
+				color.Yellow(`Using current "%s" directory\n`, absStartDir)
+			} else {
+				log.Fatalf("Error selecting directory: %v\n", err)
+			}
+		}
 	}
 
 	// List folders in absStartDir.
-	// We include the starting directory itself along with its immediate subdirectories.
-	folders := []string{absStartDir}
+	var folders []string
 	entries, err := os.ReadDir(absStartDir)
 	if err != nil {
 		log.Fatalf("Error reading directory %s: %v\n", absStartDir, err)
@@ -189,5 +206,5 @@ func main() {
 	}
 	wg.Wait()
 
-	fmt.Println("Processing complete!")
+	color.Green("Processing complete!")
 }
