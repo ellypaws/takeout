@@ -178,7 +178,7 @@ func main() {
 				DescriptionFunc(func() string { return fmt.Sprintf("🗁   %v", absStartDir) }, &absStartDir).
 				OptionsFunc(getFolders(absStartDir), &absStartDir).
 				Value(&selectedFolders),
-		).WithTheme(huh.ThemeCatppuccin()),
+		),
 	)
 
 	// Run the form to let the user choose which folders to process.
