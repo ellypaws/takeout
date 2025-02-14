@@ -190,7 +190,7 @@ func main() {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
-				Title("Select folders to process").
+				Title("Select folders to process. Press enter to continue (all folders selected by default)").
 				Options(options...).
 				Value(&selectedFolders),
 		),
