@@ -165,34 +165,18 @@ func main() {
 		}
 	}
 
-	// List folders in absStartDir.
-	folders := make(map[string]string)
-	entries, err := os.ReadDir(absStartDir)
-	if err != nil {
-		log.Fatalf("Error reading directory %s: %v\n", absStartDir, err)
-	}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			folderPath := filepath.Join(absStartDir, entry.Name())
-			folders[folderPath] = entry.Name()
-		}
-	}
-
 	// Prepare a slice to hold the user's selected folders.
-	var selectedFolders []string
-
-	// Build MultiSelect options with all folders checked by default.
-	options := make([]huh.Option[string], 0, len(folders))
-	for path, name := range folders {
-		options = append(options, huh.NewOption(name, path).Selected(true))
-	}
+	var (
+		selectedFolders []string
+	)
 
 	// Build the form.
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
-				Title("Select folders to process. Press enter to continue (all folders selected by default)").
-				Options(options...).
+				Title("Select folders to process. Press [enter] to continue (all folders selected by default)").
+				DescriptionFunc(func() string { return fmt.Sprintf("🗁   %v", absStartDir) }, &absStartDir).
+				OptionsFunc(getFolders(absStartDir), &absStartDir).
 				Value(&selectedFolders),
 		).WithTheme(huh.ThemeCatppuccin()),
 	)
@@ -204,7 +188,8 @@ func main() {
 
 	ctx, done := context.WithCancel(context.Background())
 
-	err = spinner.New().
+	now := time.Now()
+	_ = spinner.New().
 		Type(spinner.Points).
 		Title(" Processing folders...").
 		Context(ctx).
@@ -221,5 +206,29 @@ func main() {
 		Accessible(false).
 		Run()
 
-	color.Green("Processing complete!")
+	color.Green("✓ Completed in %s\n", time.Since(now).Round(time.Second))
+}
+
+func getFolders(absStartDir string) func() []huh.Option[string] {
+	return func() []huh.Option[string] {
+		// List folders in absStartDir.
+		folders := make(map[string]string)
+		entries, err := os.ReadDir(absStartDir)
+		if err != nil {
+			log.Fatalf("Error reading directory %s: %v\n", absStartDir, err)
+		}
+		for _, entry := range entries {
+			if entry.IsDir() {
+				folderPath := filepath.Join(absStartDir, entry.Name())
+				folders[folderPath] = entry.Name()
+			}
+		}
+
+		// Build MultiSelect options with all folders checked by default.
+		options := make([]huh.Option[string], 0, len(folders))
+		for path, name := range folders {
+			options = append(options, huh.NewOption(name, path).Selected(true))
+		}
+		return options
+	}
 }
