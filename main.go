@@ -165,7 +165,7 @@ func main() {
 	}
 
 	// List folders in absStartDir.
-	var folders []string
+	folders := make(map[string]string)
 	entries, err := os.ReadDir(absStartDir)
 	if err != nil {
 		log.Fatalf("Error reading directory %s: %v\n", absStartDir, err)
@@ -173,7 +173,7 @@ func main() {
 	for _, entry := range entries {
 		if entry.IsDir() {
 			folderPath := filepath.Join(absStartDir, entry.Name())
-			folders = append(folders, folderPath)
+			folders[folderPath] = entry.Name()
 		}
 	}
 
@@ -181,9 +181,9 @@ func main() {
 	var selectedFolders []string
 
 	// Build MultiSelect options with all folders checked by default.
-	options := make([]huh.Option[string], len(folders))
-	for i, folder := range folders {
-		options[i] = huh.NewOption(folder, folder).Selected(true)
+	options := make([]huh.Option[string], 0, len(folders))
+	for path, name := range folders {
+		options = append(options, huh.NewOption(name, path).Selected(true))
 	}
 
 	// Build the form.
