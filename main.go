@@ -128,6 +128,9 @@ func processDir(dirPath string, wg *sync.WaitGroup) {
 			wg.Add(1)
 			go processDir(fullPath, wg)
 		} else {
+			if entry.Name() == "metadata.json" {
+				continue
+			}
 			// Only process files ending with .json (assumed to be Google Takeout metadata)
 			if strings.HasSuffix(entry.Name(), ".json") {
 				processJSON(fullPath)
