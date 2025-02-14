@@ -123,6 +123,8 @@ func processDir(dirPath string, wg *sync.WaitGroup) {
 		return
 	}
 
+	semaphore := make(chan struct{}, runtime.NumCPU())
+
 	for _, entry := range entries {
 		fullPath := filepath.Join(dirPath, entry.Name())
 		if entry.IsDir() {
@@ -134,7 +136,13 @@ func processDir(dirPath string, wg *sync.WaitGroup) {
 			}
 			// Only process files ending with .json (assumed to be Google Takeout metadata)
 			if strings.HasSuffix(entry.Name(), ".json") {
-				processJSON(fullPath)
+				wg.Add(1)
+				semaphore <- struct{}{}
+				go func(fullPath string) {
+					defer wg.Done()
+					processJSON(fullPath)
+					<-semaphore
+				}(fullPath)
 			}
 		}
 	}
