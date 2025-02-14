@@ -16,16 +16,19 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/charmbracelet/huh"
 )
 
 // processJSON reads the metadata JSON file, extracts the photoTakenTime,
-// and updates the corresponding image file's modification and access times.
+// and updates the corresponding image file's modification, access, and creation times.
 func processJSON(jsonPath string) {
 	file, err := os.Open(jsonPath)
 	if err != nil {
 		log.Printf("Error reading JSON file %s: %v\n", jsonPath, err)
 		return
 	}
+	defer file.Close()
 
 	var meta Takeout
 	if err := json.NewDecoder(file).Decode(&meta); err != nil {
@@ -40,21 +43,22 @@ func processJSON(jsonPath string) {
 	}
 	takenTime := time.Unix(ts, 0)
 
-	// Remove the .json extension to determine the image file's path.
+	// Determine the image file by using the Title field (assumed to be the image filename)
 	imagePath := meta.Title
 	if _, err := os.Stat(imagePath); os.IsNotExist(err) {
 		log.Printf("Image file %s does not exist for metadata %s\n", imagePath, jsonPath)
 		return
 	}
 
-	// Update the file's modification and access times.
+	// Update modification and access times.
 	if err := os.Chtimes(imagePath, takenTime, takenTime); err != nil {
 		log.Printf("Error updating file times for %s: %v\n", imagePath, err)
 		return
 	}
 
+	// Update creation time (Windows only).
 	if err := changeDateCreated(imagePath, takenTime); err != nil {
-		log.Printf("Error updating file times for %s: %v\n", imagePath, err)
+		log.Printf("Error updating creation time for %s: %v\n", imagePath, err)
 		return
 	}
 
@@ -91,10 +95,10 @@ func changeDateCreated(imagePath string, takenTime time.Time) error {
 
 	// Get the underlying Windows handle.
 	handle := syscall.Handle(file.Fd())
-	// Convert the takenTime to Windows FILETIME.
+	// Convert takenTime to Windows FILETIME.
 	ft := timeToFiletime(takenTime)
 
-	// Set the file's creation time.
+	// Set the file's creation, last access, and last write times.
 	if err := syscall.SetFileTime(handle, &ft, &ft, &ft); err != nil {
 		return fmt.Errorf("failed to set creation time: %v", err)
 	}
@@ -139,8 +143,51 @@ func main() {
 		os.Exit(1)
 	}
 
+	// List folders in absStartDir.
+	// We include the starting directory itself along with its immediate subdirectories.
+	folders := []string{absStartDir}
+	entries, err := os.ReadDir(absStartDir)
+	if err != nil {
+		log.Fatalf("Error reading directory %s: %v\n", absStartDir, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			folderPath := filepath.Join(absStartDir, entry.Name())
+			folders = append(folders, folderPath)
+		}
+	}
+
+	// Prepare a slice to hold the user's selected folders.
+	var selectedFolders []string
+
+	// Build MultiSelect options with all folders checked by default.
+	options := make([]huh.Option[string], len(folders))
+	for i, folder := range folders {
+		options[i] = huh.NewOption(folder, folder).Selected(true)
+	}
+
+	// Build the form.
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Select folders to process").
+				Options(options...).
+				Value(&selectedFolders),
+		),
+	)
+
+	// Run the form to let the user choose which folders to process.
+	if err := form.Run(); err != nil {
+		log.Fatalf("Error running form: %v", err)
+	}
+
+	// Process each selected folder concurrently.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go processDir(absStartDir, &wg)
+	for _, folder := range selectedFolders {
+		wg.Add(1)
+		go processDir(folder, &wg)
+	}
 	wg.Wait()
+
+	fmt.Println("Processing complete!")
 }
