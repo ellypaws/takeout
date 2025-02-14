@@ -1,9 +1,9 @@
 //go:build windows
-// +build windows
 
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/huh/spinner"
 	"github.com/fatih/color"
 	"github.com/sqweek/dialog"
 )
@@ -193,7 +194,7 @@ func main() {
 				Title("Select folders to process. Press enter to continue (all folders selected by default)").
 				Options(options...).
 				Value(&selectedFolders),
-		),
+		).WithTheme(huh.ThemeCatppuccin()),
 	)
 
 	// Run the form to let the user choose which folders to process.
@@ -201,13 +202,24 @@ func main() {
 		log.Fatalf("Error running form: %v", err)
 	}
 
-	// Process each selected folder concurrently.
-	var wg sync.WaitGroup
-	for _, folder := range selectedFolders {
-		wg.Add(1)
-		go processDir(folder, &wg)
-	}
-	wg.Wait()
+	ctx, done := context.WithCancel(context.Background())
+
+	err = spinner.New().
+		Type(spinner.Points).
+		Title(" Processing folders...").
+		Context(ctx).
+		Action(func() {
+			// Process each selected folder concurrently.
+			var wg sync.WaitGroup
+			for _, folder := range selectedFolders {
+				wg.Add(1)
+				go processDir(folder, &wg)
+			}
+			wg.Wait()
+			done()
+		}).
+		Accessible(false).
+		Run()
 
 	color.Green("Processing complete!")
 }
