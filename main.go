@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package main
 
 import (
@@ -7,9 +10,11 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -48,7 +53,53 @@ func processJSON(jsonPath string) {
 		return
 	}
 
-	fmt.Printf("Updated file times of %s to %s\n", imagePath, takenTime.Format(time.RFC3339))
+	if err := changeDateCreated(imagePath, takenTime); err != nil {
+		log.Printf("Error updating file times for %s: %v\n", imagePath, err)
+		return
+	}
+
+	log.Printf("Updated file times of %s to %s\n", imagePath, takenTime.Format(time.RFC3339))
+}
+
+// timeToFiletime converts a time.Time to a Windows FILETIME structure.
+// Windows FILETIME counts 100-nanosecond intervals since January 1, 1601.
+func timeToFiletime(t time.Time) syscall.Filetime {
+	const ticksPerSecond = 10000000     // 10^7 100-ns intervals per second
+	const epochDifference = 11644473600 // seconds between 1601-01-01 and 1970-01-01
+	unixTime := t.Unix()
+	nano := t.Nanosecond()
+	total := uint64(unixTime+epochDifference)*ticksPerSecond + uint64(nano)/100
+	return syscall.Filetime{
+		LowDateTime:  uint32(total & 0xFFFFFFFF),
+		HighDateTime: uint32(total >> 32),
+	}
+}
+
+// changeDateCreated changes the creation date of the file.
+// On Windows it uses syscall.SetFileTime; on other platforms it returns an error.
+func changeDateCreated(imagePath string, takenTime time.Time) error {
+	if runtime.GOOS != "windows" {
+		return fmt.Errorf("changeDateCreated is only supported on Windows (current OS: %s)", runtime.GOOS)
+	}
+
+	// Open the file with read-write access.
+	file, err := os.OpenFile(imagePath, os.O_RDWR, 0)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+	// Get the underlying Windows handle.
+	handle := syscall.Handle(file.Fd())
+	// Convert the takenTime to Windows FILETIME.
+	ft := timeToFiletime(takenTime)
+
+	// Set the file's creation time.
+	if err := syscall.SetFileTime(handle, &ft, &ft, &ft); err != nil {
+		return fmt.Errorf("failed to set creation time: %v", err)
+	}
+
+	return nil
 }
 
 // processDir walks through the directory specified by dirPath.
