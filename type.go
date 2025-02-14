@@ -19,11 +19,11 @@ type Time struct {
 }
 
 type GeoData struct {
-	Latitude      int64 `json:"latitude"`
-	Longitude     int64 `json:"longitude"`
-	Altitude      int64 `json:"altitude"`
-	LatitudeSpan  int64 `json:"latitudeSpan"`
-	LongitudeSpan int64 `json:"longitudeSpan"`
+	Latitude      float64 `json:"latitude"`
+	Longitude     float64 `json:"longitude"`
+	Altitude      float64 `json:"altitude"`
+	LatitudeSpan  float64 `json:"latitudeSpan"`
+	LongitudeSpan float64 `json:"longitudeSpan"`
 }
 
 type GooglePhotosOrigin struct {
